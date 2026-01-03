@@ -16,7 +16,6 @@ The Assessor consumes:
 - Source attribution from:
   - Structural analysis (`lstran`)
   - YARA analysis (`lyara`)
-  - Threat feeds (`lthreat`)
 
 All inputs are strongly typed and non-arbitrary.
 
@@ -93,16 +92,16 @@ lassess! {
 
     lstran {
         // Hard deny: things we explicitly do not escalate
-        deny when signal == KnownBenignFormat
+        deny when KnownBenignFormat
 
         // Hard allow: deception indicators
-        allow when signal == FormatMismatch
-        allow when risk_hint == UnknownFormat
+        allow when FormatMismatch
+        allow when UnknownFormat
 
         // Conditional escalation
         allow when all(
-            signal == PdfHasJavascript,
-            risk_hint == ActiveContent
+            PdfHasJavascript,
+            ActiveContent
         )
     }
 
@@ -112,31 +111,17 @@ lassess! {
     // Pattern-derived indicators only. no interpretation
     lyara {
         // Hard allow: strong indicators
-        allow when signal == ShellcodePattern
-        allow when signal == KnownMalwareSignature
+        allow when ShellcodePattern
+        allow when KnownMalwareSignature
 
         // Weak signals require reinforcement
         allow when count(
-            signal == SuspiciousEntropy,
-            signal == PackedBinary,
-            risk_hint == ObfuscationLikely
+            SuspiciousEntropy,
+            PackedBinary,
+            ObfuscationLikely
         ) >= 2
     }
 
-
-    // Threat feed gating
-    //
-    // Known intelligence takes precedence
-    lthreat {
-        // Immediate escalation on known bad
-        allow when signal == KnownBadHash
-
-        // Conditional escalation on low-confidence feeds
-        allow when all(
-            signal == ThreatFeedMatch,
-            risk_hint == FeedConfidenceMedium
-        )
-    }
 
     // Global decision logic
     //

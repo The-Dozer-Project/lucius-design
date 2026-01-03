@@ -21,7 +21,6 @@ Assessor consumes **existing signals and hints** emitted by upstream components.
 - Emitted by components such as:
   - `lstran` (structural analysis)
   - `lyara` (pattern matching)
-  - `lthreat` (threat intelligence)
 - Signals are authoritative observations, not interpretations
 
 ### Risk Hints
@@ -32,7 +31,6 @@ Assessor consumes **existing signals and hints** emitted by upstream components.
 - Optional, delineated subtotals such as:
   - `lstran_score`
   - `lyara_score`
-  - `lthreat_score`
 - Scores are read-only inputs; Assessor does not compute or normalize them
 
 ---
