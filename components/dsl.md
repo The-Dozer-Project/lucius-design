@@ -58,7 +58,7 @@ Each macro:
 
 | Macro        | Domain Purpose |
 |-------------|----------------|
-| `lstruct!`  | Structural analysis and artifact legibility |
+| `lstran!`  | Structural analysis and artifact legibility |
 | `lyara!`    | Pattern-based matching and signatures |
 | `lstat!`    | Statistical signals and derived metrics |
 | `lstatic!`  | Static analysis declarations |
