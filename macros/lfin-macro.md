@@ -120,7 +120,7 @@ lfin! {
     // -------------------------------------------------------------------------
     signals {
 
-        family final {
+        family fin {
 
             signal benign {
                 description = "Artifact exhibits no meaningful malicious indicators"
