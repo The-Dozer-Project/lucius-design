@@ -51,6 +51,19 @@ Rejection logic is implemented internally and intentionally **not configurable**
 
 ---
 
+### Emit handling
+Emits are explicitly declared in Ben. Emits are only bound to sending immediate signals to Ben concerning data that need
+to have an action happen when crossing a certain threshold
+
+When an emission happens:
+- Emit is bounded to declared intent.
+- Artifact proceeds to allow for information propagation.
+- Emissions are explicity recorded
+
+Notary emissions **do not** allow for arbitrary code nor are they observations.
+
+```
+
 ### Authority Model
 The Notary has **no authority** outside rejection.
 

@@ -109,6 +109,8 @@ The notary does **not** invent policy. All intent is hydrated via the propagator
 
 It does not declare maliciousness. It records evidence and applies weights according to declared intent. Final disposition is deferred until the `finalize` stage.
 
+The notary can reject artifact based on internal criteria. The notary can also emit "signals" dependent on explicit intent declared in configuration. Emits are enums that **don't hold values" and correlate to playbooks within detectors.
+
 ---
 
 ### normalize
