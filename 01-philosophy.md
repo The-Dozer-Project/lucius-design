@@ -78,6 +78,7 @@ Lucius may:
 - Enrich artifacts
 - Escalate suspicion
 - Route data for deeper inspection
+- Emit declared signals to Ben
 
 Lucius may not:
 - Perform irreversible actions outside declared bounds
