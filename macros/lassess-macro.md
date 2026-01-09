@@ -1,142 +1,211 @@
-## lassess (Assessor) Macro - Summary
-
-The Assessor macro defines **when an artifact is eligible for static analysis**. It does not interpret risk, assign severity, or take action. Its sole responsibility is to make a **yes / no escalation decision** based on signals and risk hints emitted by upstream components.
-
----
-
-### Purpose
-The Assessor exists to protect system throughput and determinism by ensuring that **static analysis is only performed when explicitly justified**. It prevents expensive analysis from running indiscriminately while remaining fully operator-controlled.
-
----
-
-### Inputs
-The Assessor consumes:
-- **Signals** (enumerated, factual observations)
-- **Risk hints** (enumerated contextual markers)
-- Source attribution from:
-  - Structural analysis (`lstran`)
-  - YARA analysis (`lyara`)
-
-All inputs are strongly typed and non-arbitrary.
-
----
-
-### Decision Model
-The Assessor evaluates:
-- Hard allow rules (immediate escalation)
-- Hard deny rules (explicit non-escalation)
-- Conditional allow rules based on combinations or counts
-
-If no allow conditions are met, the artifact continues through the pipeline without static analysis.
-
----
-
-### What the Assessor Does
-- Determines eligibility for static analysis
-- Enforces operator-declared escalation boundaries
-- Applies explicit, enumerable rules
-- Preserves determinism and explainability
-
----
-
-### What the Assessor Does Not Do
-- Assign weights or scores
-- Interpret intent or severity
-- Execute actions
-- Modify artifacts
-- Infer authority or confidence
-
----
-
-### Authority Model
-The Assessor has **bounded authority**:
-- It may escalate or decline escalation
-- It may not invent certainty
-- It may not override declared intent
-
-All meaning is derived from upstream components.
-
----
-
-### Failure Philosophy
-- Missing data results in non-escalation
-- Internal errors are recorded and halt processing
-- The Assessor never escalates on uncertainty alone
-
----
-
-### Design Invariant
-The Assessor decides **eligibility**, not **meaning**.
-
-This keeps the system fast, predictable, and auditable while preserving operator control over costly analysis paths.
-
-
-
-
-
-### Example
 ```rust
-lassess! {
+// -----------------------------------------------------------------------------
+// lfin! — Lucius Finalization & Outcome DSL
+//
+// Purpose:
+// - Consolidate all upstream facts, signals, and scores
+// - Express a final, stable outcome
+// - Produce human- and system-consumable conclusions
+//
+// lfin does NOT:
+// - Perform analysis
+// - Generate new observations
+// - Accumulate score
+// - Execute actions
+//
+// lfin is the *last interpretive step* inside Lucius.
+// Everything after this is mediation, orchestration, or policy.
+//
+// Inputs:
+// - Signals from lstran, lstatic, lyara, lthreat
+// - Accumulated score
+// - Assessor routing outcomes
+//
+// Outputs:
+// - Final outcome classification
+// - Final tags
+// - Final emissions to Notary
+// -----------------------------------------------------------------------------
+
+lfin! {
+
+    // -------------------------------------------------------------------------
+    // META
+    //
+    // Identity, audit, and ownership.
+    // -------------------------------------------------------------------------
     meta {
-        name        = "default_static_gate"
-        version     = "0.1.0"
+        name        = "default_finalization_policy"
         author      = "org-security"
-        intent      = Investigative
-        description = "Escalation gate for static analysis based on upstream signals"
+        source      = "analysis-policy"
+        version     = "1.0.0"
+
+        description = "Final consolidation and outcome expression for Lucius"
     }
 
-    // Structural analysis gating
+    // -------------------------------------------------------------------------
+    // OPERATIONS
     //
-    // Answers: is this artifact structurally suspicious enough
-    // to justify deeper inspection?
+    // Operations define *interpretive groupings* over existing facts.
+    //
+    // They:
+    // - Combine signals and score into stable predicates
+    // - Encode final reasoning structure
+    // - Do NOT mutate state
+    //
+    // Think: "How do we recognize a terminal condition?"
+    // -------------------------------------------------------------------------
+    operations {
 
-    lstran {
-        // Hard deny: things we explicitly do not escalate
-        deny when KnownBenignFormat
+        // -------------------------------------------------------------
+        // Strong benign posture
+        // -------------------------------------------------------------
+        operation confidently_benign {
+            when all(
+                lstran.signal.format.known_benign,
+                score < 0.3,
+                not any(
+                    lyara.signal.signature.known_malware,
+                    lstatic.signal.execution.advanced_technique,
+                    lthreat.signal.reputation.corroborated_intel
+                )
+            )
+        }
 
-        // Hard allow: deception indicators
-        allow when FormatMismatch
-        allow when UnknownFormat
+        // -------------------------------------------------------------
+        // Corroborated malicious indicators
+        // -------------------------------------------------------------
+        operation confirmed_malicious {
+            when any(
+                all(
+                    lyara.signal.signature.known_malware,
+                    lthreat.signal.reputation.corroborated_intel
+                ),
+                all(
+                    lstatic.signal.execution.advanced_technique,
+                    score >= 0.85
+                )
+            )
+        }
 
-        // Conditional escalation
-        allow when all(
-            PdfHasJavascript,
-            ActiveContent
-        )
+        // -------------------------------------------------------------
+        // Suspicious but inconclusive
+        // -------------------------------------------------------------
+        operation suspicious_behavior {
+            when all(
+                score >= 0.6,
+                score < 0.85,
+                not operation.confirmed_malicious
+            )
+        }
+
+        // -------------------------------------------------------------
+        // Analysis integrity failure
+        // -------------------------------------------------------------
+        operation inconclusive_analysis {
+            when any(
+                lstran.signal.analysis.bounds_exceeded,
+                lstran.signal.analysis.partial_parse,
+                lstatic.signal.analysis.incomplete
+            )
+        }
     }
 
-
-    // YARA-based gating
+    // -------------------------------------------------------------------------
+    // SIGNALS
     //
-    // Pattern-derived indicators only. no interpretation
-    lyara {
-        // Hard allow: strong indicators
-        allow when ShellcodePattern
-        allow when KnownMalwareSignature
+    // Signals here represent *final semantic states*.
+    //
+    // These are not facts — they are outcomes.
+    // -------------------------------------------------------------------------
+    signals {
 
-        // Weak signals require reinforcement
-        allow when count(
-            SuspiciousEntropy,
-            PackedBinary,
-            ObfuscationLikely
-        ) >= 2
+        family fin {
+
+            signal benign {
+                description = "Artifact exhibits no meaningful malicious indicators"
+                derive when operation.confidently_benign
+            }
+
+            signal malicious {
+                description = "Artifact exhibits strong, corroborated malicious indicators"
+                derive when operation.confirmed_malicious
+            }
+
+            signal suspicious {
+                description = "Artifact exhibits elevated risk without full certainty"
+                derive when operation.suspicious_behavior
+            }
+
+            signal inconclusive {
+                description = "Analysis incomplete or structurally unreliable"
+                derive when operation.inconclusive_analysis
+            }
+        }
     }
 
-
-    // Global decision logic
+    // -------------------------------------------------------------------------
+    // CLINCH
     //
-    // If no allow rules fire, artifact continues the pipeline
-    // without static analysis.
-    decision {
-        escalate when any(allow)
-        otherwise continue
-    }
-
-    // Failure posture
+    // Clinch:
+    // - Assigns final outcome
+    // - Emits final intent
+    // - Tags for audit and UI
+    // - Outcomes are user defined
     //
-    // Assessor never invents certainty.
-    failure {
-        on_missing_signals = continue
-        on_internal_error  = halt_and_record
+    // This is the only place outcomes are set.
+    // -------------------------------------------------------------------------
+    clinch {
+
+        // -------------------------------------------------------------
+        // MALICIOUS
+        // -------------------------------------------------------------
+        when signal.final.malicious {
+            set outcome = Malicious
+            tag += "final:malicious"
+
+            emit Emission::ConfirmedMalware
+            run deferred Action::Quarantine
+        }
+
+        // -------------------------------------------------------------
+        // BENIGN
+        // -------------------------------------------------------------
+        when signal.final.benign {
+            set outcome = Benign
+            tag += "final:benign"
+        }
+
+        // -------------------------------------------------------------
+        // INCONCLUSIVE
+        // -------------------------------------------------------------
+        when signal.final.inconclusive {
+            set outcome = Inconclusive
+            tag += "final:inconclusive"
+
+            emit Emission::AnalysisIncomplete
+        }
+
+        // -------------------------------------------------------------
+        // SUSPICIOUS (default elevated posture)
+        // -------------------------------------------------------------
+        when signal.final.suspicious {
+            set outcome = Suspicious
+            tag += "final:suspicious"
+
+            emit Emission::FurtherReviewSuggested
+            run deferred Action::Review
+        }
+
+        // -------------------------------------------------------------
+        // FALLBACK
+        //
+        // Conservatism beats confidence.
+        // -------------------------------------------------------------
+        otherwise {
+            set outcome = Suspicious
+            tag += "final:default-suspicious"
+        }
     }
 }
+```

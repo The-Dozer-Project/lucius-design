@@ -1,128 +1,204 @@
-
-# lthreat Macro - Summary
-
-The `lthreat!` macro defines how Lucius interacts with external threat intelligence sources in a **bounded, deterministic, and auditable** way.
-
-Rather than performing detection or decision-making, `lthreat!` exists to **corroborate artifacts** against known threat feeds and translate those results into **explicit statistical contributions** that downstream components can reason about.
-
----
-
-## Purpose
-
-The macro allows operators to declaratively specify:
-
-- Which threat feeds are consulted  
-- What hash types are supported  
-- How much authority each feed is granted  
-- How failures are handled  
-- How confirmed matches influence scoring and metadata  
-
-This ensures that threat intelligence is treated as **contextual input**, not unquestioned truth.
-
----
-
-## Design Principles
-
-- **Declarative, not procedural**  
-  The macro expresses *policy and trust*, not execution logic or branching behavior.
-
-- **Deterministic**  
-  Given the same artifact, feed configuration, and response, the outcome is repeatable and explainable.
-
-- **Failure-aware**  
-  Feed outages, timeouts, and partial responses are handled explicitly and never silently ignored.
-
-- **Non-authoritative**  
-  Threat feeds contribute weight and context, but never directly determine maliciousness or actions.
-
----
-
-## What the Macro Defines
-
-Each feed declaration specifies:
-
-- **Feed identity** and supported hash algorithms  
-- **Authority semantics**, including baseline confidence and scope  
-- **Failure behavior**, such as whether to continue, defer, or degrade confidence  
-- **Match behavior**, including score adjustments, tags, and optional structured metadata capture  
-
-All contributions are accumulated and recorded for later reasoning by downstream components.
-
----
-
-## What the Macro Does *Not* Do
-
-The `lthreat!` macro explicitly does **not**:
-
-- Perform detection or classification  
-- Execute actions or trigger enforcement  
-- Perform fuzzy matching or probabilistic inference  
-- Hide uncertainty or normalize feed quality  
-- Replace internal analysis or operator intent  
-
----
-
-## Role in the System
-
-`lthreat!` integrates cleanly into the Lucius pipeline:
-
-- Hashes are computed upstream  
-- Feeds are queried according to declared policy  
-- Results are logged and weighted  
-- Final interpretation is deferred to later stages  
-
-This separation ensures that external intelligence enhances understanding without eroding control or transparency.
-
-
-
-### Example
-
 ```rust
+// -----------------------------------------------------------------------------
+// lthreat! — Lucius Threat Intelligence Correlation DSL
+//
+// Purpose:
+// - Correlate artifacts against external threat intelligence feeds
+// - Translate feed responses into bounded, factual signals
+// - Contribute weighted context without asserting truth
+//
+// lthreat does NOT:
+// - Perform detection or classification
+// - Decide maliciousness
+// - Execute actions
+// - Override local analysis
+//
+// Threat intelligence is treated as *context*, not authority.
+// -----------------------------------------------------------------------------
+
 lthreat! {
-    feed "internal_malware_feed" {
-        provider = "org-threat-intel"
-        hashes   = [ sha256, sha1 ]
 
-        authority {
-            confidence = 0.9
-            scope      = internal
+    // -------------------------------------------------------------------------
+    // META
+    //
+    // Identity, audit, and policy ownership.
+    // -------------------------------------------------------------------------
+    meta {
+        name        = "default_threat_corroboration"
+        author      = "org-security"
+        source      = "threat-intel-policy"
+        version     = "0.5.0"
+
+        description = "Correlates artifacts against internal and external threat feeds"
+    }
+
+    // -------------------------------------------------------------------------
+    // OPERATIONS
+    //
+    // Operations define *how external intelligence is consulted*.
+    //
+    // They:
+    // - Specify which feeds are queried
+    // - Declare supported artifact identifiers
+    // - Define bounded interaction rules
+    // - Model failure explicitly
+    //
+    // Operations DO NOT:
+    // - Assign meaning
+    // - Normalize confidence
+    // - Decide outcomes
+    // -------------------------------------------------------------------------
+    operations {
+
+        // -------------------------------------------------------------
+        // Internal high-confidence malware feed
+        // -------------------------------------------------------------
+        operation internal_malware_feed {
+            provider = "org-threat-intel"
+            url = "someorgprovider.com"
+            hashes   = [ sha256, sha1 ]
+
+            authority {
+                confidence = 0.9
+                scope      = internal
+            }
+
+            timeout = 250.ms
+            max_hits = 1
+
+            on_failure {
+                behavior = record_and_continue
+            }
         }
 
-        on_failure {
-            behavior = record_and_continue
-            penalty  = 0.0
-        }
+        // -------------------------------------------------------------
+        // External reputation feed (lower trust)
+        // -------------------------------------------------------------
+        operation public_reputation_feed {
+            provider = "public-reputation-api"
+            url = "somerepprovider.org"
+            hashes   = [ sha256 ]
 
-        on_match {
-            score += 0.6
-            tag   += "known-malware"
-            tag   += "threat-feed-match"
+            authority {
+                confidence = 0.5
+                scope      = external
+            }
 
-            capture {
-                family
-                campaign
-                first_seen
+            timeout = 400.ms
+            max_hits = 3
+
+            on_failure {
+                behavior = degrade_confidence
+                penalty  = 0.1
             }
         }
     }
 
-    feed "public_reputation_feed" {
-        provider = "reputation-api"
-        hashes   = [ sha256 ]
+    // -------------------------------------------------------------------------
+    // SIGNALS
+    //
+    // Signals are *facts derived from feed responses*.
+    //
+    // They:
+    // - Represent corroboration, not certainty
+    // - Are boolean or bounded numeric
+    // - Carry no implicit verdict
+    // -------------------------------------------------------------------------
+    signals {
 
-        authority {
-            confidence = 0.5
-            scope      = external
+        family reputation {
+
+            signal known_malware {
+                description = "Artifact hash matched a known malware entry"
+                derive from operation.internal_malware_feed
+                    when match == true
+            }
+
+            signal suspected_malware {
+                description = "Artifact matched a lower-confidence reputation source"
+                derive from operation.public_reputation_feed
+                    when match_count >= 1
+            }
+
+            signal corroborated_intel {
+                description = "Artifact corroborated across multiple independent feeds"
+                derive from any(
+                    operation.internal_malware_feed,
+                    operation.public_reputation_feed
+                )
+                    when distinct_sources >= 2
+            }
         }
 
-        on_failure {
-            behavior = degrade_confidence
-            penalty  = 0.1
+        family intel_quality {
+
+            signal feed_failure {
+                description = "One or more threat intelligence feeds failed to respond"
+                derive from any(
+                    operation.internal_malware_feed,
+                    operation.public_reputation_feed
+                )
+                    when failure == true
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // CLINCH
+    //
+    // Clinch:
+    // - Accumulates score contributions
+    // - Tags artifacts for auditability
+    // - Requests escalation intent (never executes)
+    //
+    // Still:
+    // - No verdicts
+    // - No authority claims
+    // -------------------------------------------------------------------------
+    clinch {
+
+        // -------------------------------------------------------------
+        // High-confidence internal corroboration
+        // -------------------------------------------------------------
+        when signal.reputation.known_malware {
+            score += 0.6
+            tag   += "threat:intel-internal-match"
+            emit Emission::KnownMalware
         }
 
-        on_match {
+        // -------------------------------------------------------------
+        // Lower-confidence public corroboration
+        // -------------------------------------------------------------
+        when signal.reputation.suspected_malware {
             score += 0.3
-            tag   += "public-malware-indicator"
+            tag   += "threat:intel-public-match"
+        }
+
+        // -------------------------------------------------------------
+        // Multi-source corroboration
+        // -------------------------------------------------------------
+        when signal.reputation.corroborated_intel {
+            score += 0.4
+            tag   += "threat:intel-corroborated"
+        }
+
+        // -------------------------------------------------------------
+        // Feed degradation awareness
+        // -------------------------------------------------------------
+        when signal.intel_quality.feed_failure {
+            tag += "threat:intel-partial"
+        }
+
+        // -------------------------------------------------------------
+        // Escalation requests
+        //
+        // Threat intel *never escalates alone*.
+        // -----------------------------------------------------------------
+        when all(
+            signal.reputation.corroborated_intel,
+            score >= 0.6
+        ) {
+            run deferred Route::ToAssessor
         }
     }
 }

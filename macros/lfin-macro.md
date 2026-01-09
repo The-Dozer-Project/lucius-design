@@ -1,219 +1,194 @@
 ### lfin Configuration Macro - Purpose and Scope
 
-The `lfin` configuration macro defines how Lucius *interprets* accumulated evidence. It is the final reasoning layer in the Lucius pipeline, responsible for turning signals, statistical outputs, and contextual hints into a coherent, explainable outcome.
-
-At a high level, `lfin` answers the question:
-
-> “Given everything Lucius observed, how should this artifact be understood?”
-
-#### What lfin does
-
-- Assigns meaning to **signals** emitted by upstream components  
-  Signals are factual observations (e.g. `PdfHasJavascript`, `KnownBadHash`).  
-  `lfin` determines how much each signal matters by assigning:
-  - Weight
-  - Confidence impact
-  - Whether the signal should be surfaced to Ben or other systems
-
-- Interprets **risk hints**  
-  Risk hints bias interpretation without asserting maliciousness.  
-  They shape severity, confidence caps, and contextual framing rather than making decisions on their own.
-
-- Correlates weak or strong evidence  
-  `lfin` allows combinations of signals to reinforce, dampen, or override each other so that meaning emerges from context rather than single indicators.
-
-- Governs confidence  
-  `lfin` enforces confidence rules to prevent overconfidence when data is missing, partial, or contradictory. Confidence is treated as a first-class output.
-
-- Defines decision thresholds  
-  Decisions such as *observe*, *investigate*, or *contain* are derived from accumulated score and confidence according to operator-defined ranges.
-
-- Declares bounded operation permissions  
-  `lfin` specifies which operations are allowed or forbidden for each decision state. These are declarative permissions, not executions.
-
-- Normalizes output  
-  `lfin` controls what information is persisted in the Lucius silo and what is returned upstream (e.g. to Ben), including redaction and verbosity.
-
-- Defines failure posture  
-  Explicit behavior is declared for degraded conditions such as missing data, feed failures, or internal errors.
-
-#### What lfin is not
-
-- It is not a detector
-- It does not perform analysis
-- It does not execute operations
-- It does not assert ground truth maliciousness
-
-`lfin` is an interpretation engine, not an enforcement engine.
-
-#### Authority model
-
-`lfin` is authoritative over interpretation but bounded by declared intent.  
-It cannot invent signals, exceed configured operations, or hide uncertainty.
-
-All conclusions produced by `lfin` are explainable, reproducible, and versioned.
-
-#### Design goal
-
-The goal of `lfin` is to replace opaque yes/no verdicts with structured, reasoned outcomes that operators can trust, audit, and integrate into larger decision systems.
-
-
-
-
-
-### Example
 ```rust
+// -----------------------------------------------------------------------------
+// lfin! — Lucius Finalization & Outcome DSL
+//
+// Purpose:
+// - Consolidate accumulated signals, tags, scores, and intents
+// - Produce final, human- and system-consumable outcomes
+// - Decide *how results are expressed*, not how they were derived
+//
+// lfin does NOT:
+// - Perform detection
+// - Generate new signals from raw data
+// - Re-run analysis
+// - Execute actions
+//
+// Inputs:
+// - Signals from lstran!, lyara!, lstatic!, lthreat!
+// - Score accumulated upstream
+// - Escalation decisions (e.g., Assessor outcomes)
+//
+// Outputs:
+// - Final verdict classification
+// - Final tags and summaries
+// - Emissions to Notary (system-level intent)
+//
+// lfin is the *last interpretive step* inside Lucius.
+// -----------------------------------------------------------------------------
+
 lfin! {
+
+    // -------------------------------------------------------------------------
+    // META
+    //
+    // Identity, audit, and versioning.
+    // -------------------------------------------------------------------------
     meta {
-        name        = "default_enterprise_triage"
-        version     = "0.3.0"
+        name        = "default_finalization_policy"
         author      = "org-security"
-        intent      = Investigative
-        description = "Balanced interpretation profile for mixed enterprise workloads"
+        source      = "internal-policy"
+        version     = "1.0.0"
+
+        description = "Final consolidation and outcome expression for Lucius analysis"
     }
 
-    // Signal semantics
+    // -------------------------------------------------------------------------
+    // OUTCOMES
     //
-    // Signals are factual observations emitted by upstream components.
-    // lfin assigns meaning, weight, and confidence impact.
-    signals {
-        PdfHasJavascript {
-            weight        = 0.35
-            confidence    = 0.9
-            export_to_ben = true
+    // Declares the terminal outcome states Lucius may assign.
+    // These are descriptive, not executable.
+    // -------------------------------------------------------------------------
+    outcomes {
+
+        outcome Benign {
+            description = "Artifact exhibits no meaningful indicators of maliciousness"
+            severity    = low
         }
 
-        ShellcodePattern {
-            weight        = 0.75
-            confidence    = 0.95
-            export_to_ben = true
+        outcome Suspicious {
+            description = "Artifact exhibits elevated risk or ambiguity requiring review"
+            severity    = medium
         }
 
-        KnownBadHash {
-            weight        = 1.0
-            confidence    = 1.0
-            export_to_ben = true
+        outcome Malicious {
+            description = "Artifact exhibits strong, corroborated malicious indicators"
+            severity    = high
         }
 
-        SuspiciousEntropy {
-            weight        = 0.25
-            confidence    = 0.6
-            export_to_ben = false
-        }
-    }
-
-    // Risk hints
-    //
-    // Risk hints bias interpretation but never assert maliciousness.
-    // They shape thresholds, not decisions.
-    risk_hints {
-        ActiveContent {
-            severity_bias = +0.15
-        }
-
-        ObfuscationLikely {
-            severity_bias = +0.2
-        }
-
-        UnknownFormat {
-            severity_bias = +0.3
-            confidence_cap = 0.7
+        outcome Inconclusive {
+            description = "Analysis incomplete or insufficient to reach confidence"
+            severity    = unknown
         }
     }
 
-    // Composite interpretation rules
+// -------------------------------------------------------------------------
+// FINALIZATION LOGIC
+//
+// Conditions here reason over:
+// - Accumulated score
+// - Presence or absence of specific signals
+// - Assessor decisions
+//
+// No mutation. No scoring. No execution.
+// -------------------------------------------------------------------------
+conditions {
+
+    // -------------------------------------------------------------
+    // HARD BENIGN
     //
-    // Allows weak signals to reinforce or dampen each other.
-    correlations {
-        when all(PdfHasJavascript, SuspiciousEntropy) {
-            amplify_weight += 0.2
-            note "Active content combined with entropy anomaly"
-        }
-
-        when any(ShellcodePattern, KnownBadHash) {
-            override_confidence = 1.0
-        }
-
-        when SuspiciousEntropy and not ActiveContent {
-            dampen_weight -= 0.1
-        }
+    // Strong evidence of benign structure and behavior,
+    // with no corroborating malicious indicators.
+    // -------------------------------------------------------------
+    when all(
+        lstran.signal.format.known_benign,
+        not any(
+            lstran.signal.format.mismatch,
+            lyara.signal.signature.known_malware,
+            lthreat.signal.feed.known_malware_family
+        )
+    ) {
+        set outcome = Benign
+        tag += "final:benign"
     }
 
-    // Confidence governance
+    // -------------------------------------------------------------
+    // MALICIOUS (HIGH CONFIDENCE)
     //
-    // Prevents overconfidence when data is partial or conflicting.
-    confidence_rules {
-        minimum_required = 0.6
-
-        when missing(StructuralAnalysis) {
-            cap_confidence = 0.7
-        }
-
-        when conflicting_signals {
-            downgrade_severity = one_level
-        }
+    // Multiple independent corroborations.
+    // -------------------------------------------------------------
+    when all(
+        lyara.signal.signature.known_malware,
+        lthreat.signal.feed.corroborated_intel
+    ) {
+        set outcome = Malicious
+        tag += "final:malicious"
+        emit Emission::ConfirmedMalware
     }
 
-    // Decision thresholds
+    // -------------------------------------------------------------
+    // MALICIOUS (CAPABILITY-BASED)
     //
-    // Thresholds operate on accumulated score + confidence.
-    thresholds {
-        observe {
-            score_range      = 0.0..0.4
-            confidence_min   = 0.0
-        }
-
-        investigate {
-            score_range      = 0.4..0.7
-            confidence_min   = 0.5
-        }
-
-        contain {
-            score_range      = 0.7..1.0
-            confidence_min   = 0.75
-        }
+    // Strong behavioral indicators even without signature match.
+    // -------------------------------------------------------------
+    when all(
+        lstatic.signal.execution.advanced_technique,
+        score >= 0.85
+    ) {
+        set outcome += Malicious
+        tag += "final:malicious-capability"
+        emit Emission::HighRiskBehavior
     }
 
-    // Bounded Operations
+    // -------------------------------------------------------------
+    // SUSPICIOUS
     //
-    // operations are explicit, finite, and non-escalatory.
-    operations {
-        when decision == investigate {
-            allow extract_strings
-            allow enrich_metadata
-            deny  quarantine
-        }
-
-        when decision == contain {
-            allow quarantine
-            allow notify_soc
-            allow request_luxamen
-        }
+    // Elevated risk but insufficient certainty.
+    // -------------------------------------------------------------
+    when score >= 0.6 {
+        set outcome = Suspicious
+        tag += "final:suspicious"
     }
 
-    // Output normalization
+    // -------------------------------------------------------------
+    // INCONCLUSIVE
     //
-    // Shapes what is persisted and what is returned upstream.
-    output {
-        lucius_silo {
-            verbosity = detailed
-            include   = [signals, risk_hints, confidence, decision]
-        }
-
-        ben {
-            emit_signals = true
-            emit_decision = true
-            redact_tags  = false
-        }
+    // Structural or analytical uncertainty dominates.
+    // -------------------------------------------------------------
+    when any(
+        lstran.signal.analysis.bounds_exceeded,
+        lstran.signal.analysis.partial_parse,
+        lstatic.signal.analysis.incomplete
+    ) {
+        set outcome = Inconclusive
+        tag += "final:inconclusive"
     }
 
-    // Failure posture
+    // -------------------------------------------------------------
+    // DEFAULT FALLBACK
     //
-    // Explicit behavior under uncertainty or degradation.
-    failure {
-        on_missing_data   = degrade_confidence
-        on_feed_failure   = annotate_only
-        on_internal_error = halt_and_record
+    // If nothing else fires, remain conservative.
+    // -------------------------------------------------------------
+    otherwise {
+        set outcome = Suspicious
+        tag += "final:default-suspicious"
+    }
+}
+
+    // -------------------------------------------------------------------------
+    // FINAL DISPATCH
+    //
+    // dipatch here represent *system-level conclusions*.
+    // They are sent to Notary for mediation and downstream handling.
+    // -------------------------------------------------------------------------
+    dipatch
+     {
+
+        when outcome == Malicious {
+            emit Emission::ImmediateQuarantineRecommended
+            run deferred Active::Quarantine
+        }
+
+        when outcome == Suspicious {
+            emit Emission::FurtherReviewSuggested
+            run deferred Active::Review
+        }
+
+        when outcome == Inconclusive {
+            emit Emission::AnalysisIncomplete
+            run deferre User::Forensic
+        }
     }
 }
 ```

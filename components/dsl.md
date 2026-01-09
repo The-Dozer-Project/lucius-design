@@ -88,7 +88,6 @@ A rule consists of:
 Conceptually:
 ```
 when 
-then 
 ```
 
 Rules are declarative.  
@@ -122,7 +121,7 @@ They only combine truth values.
 
 Conditions may compare observations using:
 ```
-<  <=  >  >=  ==  !=
+<  <=  >  >=  ==  != not
 ```
 Both sides of a comparison are **observations or constants**.
 
@@ -174,10 +173,27 @@ run
 
 ---
 
+### Action Providers (Out of Scope for the DSL)
+
+#### Action providers:
+- Execute or mediate intent requests emitted by Lucius
+- Are registered and configured outside the DSL
+- Are owned by Ben or the system control plane
+- May be native (low-latency, platform-specific)
+- May be WASM-based (portable, sandboxed, policy-constrained)
+
+#### The DSL:
+- Does not define what an action does
+- Does not bind actions to implementations
+- Does not encode policy or side effects
+- Expresses only timing intent (immediate vs deferred)
+
+---
+
 ### Component Responsibilities
 - #### Ben
     - **Proxy / Sidecar / Detector**
-        - Support **immediate actions only**
+        - Support **immediate actions and deferred actions**
         - Execute actions synchronously
         - Do not defer intent
 
@@ -207,11 +223,45 @@ This preserves determinism and prevents hidden logic.
 ## Emit Actions
 
 Actions accept no argument and are bound to explicit intent declared in Ben.
-Emits only emit enum idents. They are not observations and they do not include arbitrary code.
+Emits only emit enum ident and associated artifact information. They are not observations and they do not include arbitrary code.
 Emits correlate to playbooks within the detectors and are declared within the ben configuration crate 
 via a proc macro.
 
-```
+
+---
+
+## from — Data Source Selection
+
+The ```from``` keyword **declares** which data substrate an operation is **allowed** to read from.
+
+### ```from``` is used to **make** 
+- data provenance explicit
+- enforce component boundaries
+- preserve determinism across the Lucius and Ben ecosystems.
+
+### ```from``` **does not** 
+- invoke functions
+- perform computation
+- access the environment.
+It selects a predefined, read-only data source provided by the enclosing component.
+
+### Core Semantics
+- from selects exactly one data source
+- The data source must be declared by the component
+- The data source is read-only
+- The data source is bounded and deterministic
+- The meaning of from is component-scoped
+
+### ```from``` never:
+- xecutes code
+- llocates unbounded state
+- utates artifacts
+- ccesses external systems
+- alls user-defined logic
+
+
+---
+
 
 ## Macro Families
 

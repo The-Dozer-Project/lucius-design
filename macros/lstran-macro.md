@@ -1,293 +1,284 @@
-# `lstran!` - Lucius Structural Analysis DSL
-
-This document describes the **`lstran!` macro** under the current Lucius / Ben-wide DSL model.
-
-`lstran!` defines **structural analysis rules**: bounded, deterministic inspection that establishes
-what an artifact *appears to be*, which *structural signals* it exhibits, and how downstream stages
-*should route or interpret it* - without asserting final maliciousness or executing unbounded logic.
-
-Structural analysis exists to **reduce ambiguity early**, **preserve throughput**, and **make uncertainty explicit**.
-
 ```rust
-
-// lstran! - Lucius Structural Analysis Macro
+// -----------------------------------------------------------------------------
+// lstran! — Lucius Structural Analysis DSL
 //
-// This macro defines *structural analysis intent*.
-// It does not score, convict, or execute code.
-// It observes structure, records facts, and emits signals
-// to guide downstream stages.
+// Purpose:
+// - Perform bounded structural inspection of artifacts
+// - Establish *what the artifact appears to be*
+// - Surface structural facts and inconsistencies
+// - Provide early routing hints without interpretation
 //
-// Mental model:
-//   - The runtime produces observations (magic, probes, context)
-//   - The DSL reads observations and triggers actions
-//   - Actions update stage-owned state or emit signals
-//   - No computation happens inside the DSL
+// lstran does NOT:
+// - Perform deep static analysis
+// - Execute or emulate code
+// - Assign maliciousness
+// - Make escalation decisions
+//
+// Outputs are *structural facts*, not conclusions.
+// -----------------------------------------------------------------------------
 
 lstran! {
 
-    // ---------------------------------------------------------------------
-    // META - Identity & Audit
+    // -------------------------------------------------------------------------
+    // META
     //
-    // This describes the *rule artifact itself*, not the analyzed file.
-    // Nothing here affects execution semantics.
-    // ---------------------------------------------------------------------
+    // Identity, audit, and applicability.
+    // -------------------------------------------------------------------------
     meta {
-        name        = "lucius_structural_default"
+        name        = "default_structural_analysis"
         author      = "org-security"
         source      = "internal-policy"
-        version     = "0.3.0"
+        version     = "0.5.0"
 
-        // Informational intent only (hot-path vs deep-path).
-        // Enforcement is always done by bounds + rules.
-        profile     = "hot-path"
+        // Structural analysis applies to all artifact classes.
+        scope       = any
     }
 
-    // ---------------------------------------------------------------------
-    // BOUNDS - Determinism Contract
+    // -------------------------------------------------------------------------
+    // OPERATIONS
     //
-    // Hard ceilings enforced by the runtime.
-    // These are non-negotiable and adversary-facing.
-    // If exceeded, analysis continues conservatively.
-    // ---------------------------------------------------------------------
-    bounds {
-        max_read_bytes        = 8.mib
-        max_scan_bytes        = 256.kib
-        max_container_depth   = 4
-        max_container_members = 64
-        max_member_read_bytes = 256.kib
-        max_text_parse_bytes  = 512.kib
+    // Operations define *bounded structural probes*.
+    //
+    // They:
+    // - Are extremely cheap
+    // - Never recurse unboundedly
+    // - Never infer meaning
+    // - Never contradict their own limits
+    //
+    // Think:
+    //   "What does this look like?"
+    // not:
+    //   "What does this mean?"
+    // -------------------------------------------------------------------------
+    operations {
 
-        // fail_soft means:
-        //   - emit explicit signals
-        //   - do NOT pretend certainty
-        //   - allow downstream escalation
-        fail_mode             = fail_soft
-    }
-
-    // ---------------------------------------------------------------------
-    // MAGIC - Cheap Structural Observations
-    //
-    // Magic checks are NOT YARA.
-    // They are:
-    //   - extremely cheap
-    //   - deterministic
-    //   - presence/absence observations
-    //
-    // They answer: “could this be X?”
-    // They do NOT answer: “is this malicious?”
-    // ---------------------------------------------------------------------
-    magic {
-        pdf_magic = bytes {
+        // -------------------------------------------------------------
+        // Magic / signature probing
+        // -------------------------------------------------------------
+        operation inspect_magic {
+            from byte_stream
+            select any(
+                { 25 50 44 46 },        // %PDF
+                { 4D 5A },              // MZ
+                { 7F 45 4C 46 },        // ELF
+                { 50 4B 03 04 }         // ZIP
+            )
             offset = 0
-            value  = { 25 50 44 46 } // %PDF
+            max_bytes = 8
         }
 
-        mz_magic = bytes {
-            offset = 0
-            value  = { 4D 5A } // MZ
+        // -------------------------------------------------------------
+        // Container inspection (archives, nested formats)
+        // -------------------------------------------------------------
+        operation inspect_container {
+            from container_index select any(zip, tar, gzip),
+            max_depth = 4
+            max_members = 64
         }
 
-        zip_magic = bytes {
-            offset = 0
-            value  = { 50 4B 03 04 } // PK..
+        // -------------------------------------------------------------
+        // Lightweight text plausibility check
+        // -------------------------------------------------------------
+        operation inspect_text_characteristics {
+            // Hard bounds — structural contract
+            max_bytes = 512.kib
+
+            // What decoding attempt is allowed
+            from byte_stream decode {
+                /*
+                lucius provided
+                */
+                encoding = utf8
+                mode     = permissive   // strict | permissive
+            }
+
+            // What metrics we extract
+            from byte_stream measure {
+                /*
+                lucius provided
+                */
+                valid_ratio          // % of bytes decoded without error
+                replacement_count    // number of � inserted
+                null_byte_ratio
+                control_char_ratio
+                line_break_density
+            }
         }
 
-        // Heuristic hint only; bounded scan
-        html_hint = ascii {
-            any_of = ["<html", "<script", "<meta"]
-            nocase = true
+        // -------------------------------------------------------------
+        // Format-specific shallow probing (no deep parse)
+        // -------------------------------------------------------------
+        operation inspect_pdf_structure {
+            from pdf_structure
+            detect any(
+                /*
+                lucius provided
+                */
+                has_javascript,
+                has_openaction,
+                has_embedded_files
+            ),
+            max_objects = 10_000,
+        }
+
+        operation inspect_pe_structure {
+            from pe_headers
+            detect any(
+                /*
+                lucius provided
+                */
+                has_overlay,
+                has_tls_callbacks,
+                has_debug_directory
+            ),
+            max_sections = 96,
         }
     }
 
-    // ---------------------------------------------------------------------
-    // PARSE - Structural Probes (Configuration)
+    // -------------------------------------------------------------------------
+    // SIGNALS
     //
-    // Probes are owned by Lucius.
-    // The DSL only supplies configuration overrides.
+    // Signals are *structural facts* derived from operations.
     //
-    // There is at most ONE configuration per probe kind.
-    // Unspecified fields use safe defaults.
-    // ---------------------------------------------------------------------
-    parse {
-        pdf {
-            // Feature detection only; no execution
-            detect_features = [
-                "has_javascript",
-                "has_openaction",
-                "has_embedded_files"
-            ]
+    // They:
+    // - Are boolean or bounded numeric
+    // - Encode no intent or severity
+    // - May coexist without contradiction
+    // -------------------------------------------------------------------------
+    signals {
 
-            // Optional override; otherwise default applies
-            max_objects = 10_000
+        family format {
+
+            signal pdf_magic {
+                description = "PDF file signature observed at offset 0"
+                derive from operation.inspect_magic
+                    when matched == { 25 50 44 46 }
+            }
+
+            signal pe_magic {
+                description = "PE (MZ) signature observed at offset 0"
+                derive from operation.inspect_magic
+                    when matched == { 4D 5A }
+            }
+
+            signal elf_magic {
+                description = "ELF signature observed at offset 0"
+                derive from operation.inspect_magic
+                    when matched == { 7F 45 4C 46 }
+            }
+
+            signal zip_magic {
+                description = "ZIP container signature observed at offset 0"
+                derive from operation.inspect_magic
+                    when matched == { 50 4B 03 04 }
+            }
         }
 
-        archive {
-            formats = [zip, tar, gzip]
+        family container {
 
-            // Normalize based on member layout (e.g. docx, jar)
-            classify_by_members = true
+            signal nested_container {
+                description = "Artifact contains nested container structures"
+                derive from operation.inspect_container
+                    when depth > 1
+            }
+
+            signal excessive_members {
+                description = "Container exceeds expected member count"
+                derive from operation.inspect_container
+                    when member_count >= 64
+            }
+        }
+
+        family structure {
+
+            signal pdf_active_content {
+                description = "PDF structure indicates active content"
+                derive from operation.inspect_pdf_structure
+                    when any(has_javascript, has_openaction)
+            }
+
+            signal pe_overlay {
+                description = "PE binary contains overlay data"
+                derive from operation.inspect_pe_structure
+                    when has_overlay == true
+            }
+
+            signal pe_tls_callbacks {
+                description = "PE binary defines TLS callbacks"
+                derive from operation.inspect_pe_structure
+                    when has_tls_callbacks == true
+            }
+        }
+
+        family analysis {
+
+            signal text_plausible {
+                description = "Artifact plausibly represents structured text"
+                derive from operation.inspect_text_plausibility
+                    when valid_utf8 == true
+            }
+
+            signal bounds_exceeded {
+                description = "One or more structural bounds were exceeded"
+                derive from any_operation
+                    when bounds_hit == true
+            }
         }
     }
 
-    // ---------------------------------------------------------------------
-    // CLASSIFY - Canonical Structural Mapping
+    // -------------------------------------------------------------------------
+    // CLINCH
     //
-    // This block performs *non-controversial normalization*.
-    // There is no logic, no negation, no judgment.
+    // Clinch:
+    // - Surfaces structural facts
+    // - Applies tags for observability
+    // - Requests routing (never decides)
     //
-    // If an observation is present, assign canonical structure.
-    // This is bookkeeping, not reasoning.
-    // ---------------------------------------------------------------------
-    classify {
+    // Still no scoring. Still no interpretation.
+    // -------------------------------------------------------------------------
+    clinch {
 
-        // If PDF magic is present, we classify as PDF.
-        // This is a fact mapping, not a heuristic.
-        pdf_magic => {
-            observed_type   = pdf
-            yara_class      = document
-            type_confidence = high
+        // Structural typing hints
+        when signal.format.pdf_magic {
             tag += "type:pdf"
         }
 
-        mz_magic => {
-            observed_type   = pe
-            yara_class      = binary
-            type_confidence = high
+        when signal.format.pe_magic {
             tag += "type:pe"
         }
 
-        zip_magic => {
-            observed_type   = archive_zip
-            yara_class      = archive
-            type_confidence = high
-            tag += "type:zip"
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // CONDITIONS - Structural Reasoning Rules
-    //
-    // This is where *judgment* happens.
-    // Conditions combine observations and structural state.
-    //
-    // Rules:
-    //   - read observations
-    //   - trigger immediate actions
-    //   - emit signals, tags, and routing hints
-    //
-    // No rule performs computation.
-    // ---------------------------------------------------------------------
-    conditions {
-
-        // -------------------------------------------------------------
-        // Structural mismatches are signals, not verdicts
-        // -------------------------------------------------------------
-        when ctx.claimed_ext is_some and ctx.claimed_ext != observed_type {
-            signal += ClaimedTypeMismatch {
-                claimed  = ctx.claimed_ext,
-                observed = observed_type
-            }
-            risk_hint += SpoofedExtension
-            tag += "mismatch:claimed-vs-observed"
+        when signal.format.zip_magic {
+            tag += "type:archive"
         }
 
-        // -------------------------------------------------------------
-        // Probe execution is explicit and bounded
-        // -------------------------------------------------------------
-        when observed_type == pdf {
-            run pdf
+        // Active structure indicators
+        when signal.structure.pdf_active_content {
+            tag += "structure:active-content"
         }
 
-        when observed_type == archive_zip {
-            run archive
+        when signal.structure.pe_tls_callbacks {
+            tag += "structure:tls-callbacks"
         }
 
-        when observed_type == zip_bomb {
-            emit Zips::ItsABomb
+        // Container complexity
+        when signal.container.nested_container {
+            tag += "structure:nested-container"
         }
 
-        // -------------------------------------------------------------
-        // Probe outputs are observations (read-only)
-        // -------------------------------------------------------------
-        when parse.pdf.state == ok and parse.pdf.has_javascript {
-            signal += PdfHasJavascript
-            risk_hint += ActiveContent
-            tag += "pdf:js"
-        }
-
-        when parse.pdf.state == ok and parse.pdf.has_embedded_files {
-            signal += PdfHasEmbeddedFiles {
-                count = parse.pdf.embedded_count
-            }
-            risk_hint += NestedPayload
-            tag += "pdf:embedded"
-        }
-
-        when parse.archive.state == partial {
-            signal += PartialParse { kind = archive }
-            risk_hint += StructuralAnomaly
-            tag += "archive:partial"
-        }
-
-        // -------------------------------------------------------------
-        // Bounds exhaustion is explicit
-        // -------------------------------------------------------------
-        when ctx.bounds_exceeded {
-            signal += BoundsExceeded {
-                max_read_bytes = bounds.max_read_bytes,
-                max_depth      = bounds.max_container_depth
-            }
-            risk_hint += AnalysisIncomplete
-            tag += "bounds:exceeded"
-        }
-
-        // -------------------------------------------------------------
-        // Routing hints (advisory only)
-        // -------------------------------------------------------------
-        when yara_class == document {
-            signal += YaraProfileHint {
-                profiles = ["doc_common", "pdf_common"]
-            }
-        }
-
+        // Conservative routing hint
         when any(
-            risk_hint contains ActiveContent,
-            risk_hint contains NestedPayload,
-            risk_hint contains StructuralAnomaly,
-            risk_hint contains AnalysisIncomplete
+            signal.structure.pdf_active_content,
+            signal.structure.pe_tls_callbacks,
+            signal.container.nested_container
         ) {
-            signal += StaticCandidateHint {
-                reason = "structural-risk-hints"
-            }
+            run deferred Route::ToAssessor
+        }
+
+        // Structural uncertainty must be visible
+        when signal.analysis.bounds_exceeded {
+            tag += "analysis:incomplete"
+            emit StructuralEmit::BoundsExceeded
         }
     }
 }
-
 ```
-
-## Relationship to Other Components
-
-Structural analysis feeds:
-
-- **Notary** - accumulates signals and tags
-- **Assessor** - decides deeper analysis eligibility
-- **YARA (`lyara!`)** - selects rule profiles
-- **Finalize** - produces human-readable summaries
-
-`lstran!` exists to make downstream decisions **cheaper, clearer, and more honest**.```
-
----
-
-## Summary
-
-`lstran!` is the first truth-finding stage in Lucius.
-
-It:
-- Observes structure
-- Applies bounded probes
-- Emits explicit signals
-- Preserves uncertainty
-- Avoids premature conclusions
-
-Structural analysis is not about being right.  
-It is about being **explicit, bounded, and useful**.
