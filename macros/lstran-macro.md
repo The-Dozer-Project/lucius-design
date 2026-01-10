@@ -110,27 +110,27 @@ lstran! {
         // -------------------------------------------------------------
         operation inspect_pdf_structure {
             from pdf_structure
-            select any(
+            select {
                 /*
                 lucius provided
                 */
                 has_javascript,
                 has_openaction,
                 has_embedded_files
-            ),
+            },
             max_objects = 10_000,
         }
 
         operation inspect_pe_structure {
             from pe_headers
-            select any(
+            select {
                 /*
-                lucius provided
+                lucius provided or observation
                 */
                 has_overlay,
                 has_tls_callbacks,
                 has_debug_directory
-            ),
+            },
             max_sections = 96,
         }
     }

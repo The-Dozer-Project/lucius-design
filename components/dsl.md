@@ -253,16 +253,147 @@ It selects a predefined, read-only data source provided by the enclosing compone
 - The meaning of from is component-scoped
 
 ### ```from``` never:
-- xecutes code
-- llocates unbounded state
-- utates artifacts
-- ccesses external systems
+- executes code
+- allocates unbounded state
+- mutates artifacts
+- accesses external systems
 - alls user-defined logic
 
 
 ---
 
-## 
+## ```select``` - Facet Declaration
+
+The ```select``` clause declares which facets of a substrate are of interest to an operation.
+
+It is purely declarative.
+
+```select``` does not:
+- Perform matching
+- Evaluate truth
+- Apply logic
+- Produce signals
+- Imply presence or absence
+
+It exists solely to scope what data is extracted or observed from a substrate chosen by from.
+
+### Role in the DSL
+
+Within an operation, the execution model is:
+1.	from chooses a substrate
+2.	select declares facets of interest
+3.	Optional operators (like, measure, decode) define how extraction occurs
+4.	Results are emitted as raw observations
+
+All reasoning happens later.
+
+### Forms of select
+
+1. Block form (implicit all)
+- Used when all listed facets are requested.
+    ```rust
+    from byte_stream select {
+        valid_ratio
+        replacement_count
+        null_byte_ratio
+        control_char_ratio
+        line_break_density
+    }
+    ```
+    ### Semantics:
+    - All listed facets are extracted
+    - No ordering or dependency is implied
+    - No logic is evaluated
+
+    This form is equivalent to “select all of these”.
+
+
+2. Set form (```any```, ```all```, ```none```)
+- Used when declaring interest in a set, not asserting truth.
+
+    ```rust
+    from export_table select any(
+        "DllRegisterServer",
+        "ServiceMain",
+        "ReflectiveLoader"
+    )
+    ```
+
+    ### Semantics:
+    - Declares a set of items the operation should look for
+    - Whether any/all/none are present is determined later
+    - Presence is evaluated only in signals or clinch
+
+    #### Allowed qualifiers:
+    - ```any(...)``` - interest if at least one appears
+    - ```all(...)``` - interest only if all appear
+    - ```none(...)``` - interest in confirmed absence (still factual)
+
+    These are selection qualifiers, not logical conditions.
+
+### What ```select``` May Reference
+
+#### ```select``` may reference:
+- Lucius-provided facets
+- e.g. valid_ratio, entropy, has_overlay
+- Provider-defined observations
+- surfaced by structural, static, or normalization components
+- Literal identifiers
+- strings, symbols, tokens, opcodes, etc.
+
+#### ```select``` may not:
+- Combine facets with boolean logic
+- Compare values
+- Reference signals
+- Reference score, tags, or outcomes
+
+
+### Relationship to Operators
+
+```select``` is orthogonal to operators.
+
+### Examples:
+#### Facet extraction
+```rust
+from byte_stream select {
+    valid_ratio
+    null_byte_ratio
+}
+```
+
+---
+
+### Pattern operator ```like```
+
+```like``` is akin to "match". ```like``` is purely to match from a data substrate.
+
+```rust
+from byte_stream like bytes {
+    value  = { 25 50 44 46 }
+    offset = 0
+}
+```
+
+#### Measurement operator ```measure```
+
+```measure``` is purely to measure from a data substrate.
+
+```rust
+from byte_stream measure entropy {
+    window_size = 256
+}
+```
+
+These may appear independently or together, but their roles never overlap.
+
+### Design Invariant
+
+```select``` scopes interest.
+Operators extract.
+when reasons.
+
+Keeping ```select``` free of logic preserves determinism, prevents ambiguity, and allows operations to remain reusable across components (Lucius, Ben, future DSLs).
+
 
 ---
 
