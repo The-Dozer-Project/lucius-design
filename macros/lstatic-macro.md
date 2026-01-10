@@ -104,7 +104,7 @@ lstatic! {
         // Opcode pattern scanning (no CFG)
         // -------------------------------------------------------------
         operation inspect_opcodes {
-            from opcode_stream any(sled_nop, call_pop, syscall_stub),
+            from opcode_stream select any(sled_nop, call_pop, syscall_stub),
             max_instructions = 1_000_000,
         }
     }

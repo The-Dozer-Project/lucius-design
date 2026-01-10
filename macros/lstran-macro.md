@@ -84,7 +84,7 @@ lstran! {
             max_bytes = 512.kib
 
             // What decoding attempt is allowed
-            from byte_stream decode {
+            from byte_stream select {
                 /*
                 lucius provided
                 */
@@ -93,7 +93,7 @@ lstran! {
             }
 
             // What metrics we extract
-            from byte_stream measure {
+            from byte_stream select {
                 /*
                 lucius provided
                 */
@@ -110,7 +110,7 @@ lstran! {
         // -------------------------------------------------------------
         operation inspect_pdf_structure {
             from pdf_structure
-            detect any(
+            select any(
                 /*
                 lucius provided
                 */
@@ -123,7 +123,7 @@ lstran! {
 
         operation inspect_pe_structure {
             from pe_headers
-            detect any(
+            select any(
                 /*
                 lucius provided
                 */
