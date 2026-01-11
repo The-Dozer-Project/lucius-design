@@ -139,7 +139,8 @@ All comparison semantics are resolved at evaluation time by the consuming compon
 
 Conditions may include temporal persistence constraints such as:
 ```
-for 2 cycles
+per 2 cycles
+within 2 minutes
 ```
 These modifiers express **stability requirements**, not iteration or loops.
 
@@ -257,7 +258,7 @@ It selects a predefined, read-only data source provided by the enclosing compone
 - allocates unbounded state
 - mutates artifacts
 - accesses external systems
-- alls user-defined logic
+- allows inline arbitrary logic
 
 
 ---
